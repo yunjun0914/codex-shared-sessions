@@ -1,0 +1,9 @@
+{
+  "sessions": [
+    {
+      "name": "my-project",
+      "cwd": "~/projects/my-project",
+      "thread": "REPLACE_WITH_YOUR_EXISTING_THREAD_UUID"
+    }
+  ]
+}

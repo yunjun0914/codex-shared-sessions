@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Join one local Codex app-server from the desktop app and terminal."""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import uuid
+
+
+def codex_binary():
+    override = os.environ.get('CODEX_SHARED_BIN')
+    if override:
+        candidates = [Path(override).expanduser().absolute()]
+    else:
+        found = shutil.which('codex')
+        root = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))).expanduser()
+        candidates = ([Path(found)] if found else []) + [
+            root / 'packages/standalone/current/codex', Path.home() / '.local/bin/codex']
+    for path in candidates:
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    raise ValueError('Codex not found. Install it or set CODEX_SHARED_BIN to its absolute path.')
+
+
+def command(*args, env=None):
+    result = subprocess.run(args, env=env, text=True, capture_output=True, timeout=60)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or 'Command failed: ' + args[0])
+    return result.stdout.strip()
+
+
+def compatible(binary):
+    if '--remote' not in command(binary, '--help'):
+        raise ValueError('This Codex CLI does not advertise --remote. Update or use a tested version.')
+    command(binary, 'app-server', 'daemon', '--help')
+
+
+def workspace(value):
+    if not isinstance(value, str):
+        raise ValueError('Working directory must be a string.')
+    path = Path(value).expanduser().resolve()
+    if not path.is_dir():
+        raise ValueError('Working directory does not exist: ' + str(path))
+    return str(path)
+
+
+def thread_id(value):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError('Thread UUID must be a string.')
+    return str(uuid.UUID(value))
+
+
+def session_name(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value):
+        raise ValueError('Session name: use 1-64 letters, digits, underscores or hyphens.')
+    return 'cs-' + value
+
+
+def launch_args(binary, cwd, thread=None):
+    args = [binary, '--remote', 'unix://']
+    if thread:
+        args += ['resume', thread_id(thread)]
+    return args + ['-C', workspace(cwd)]
+
+
+def run_shared(cwd, thread):
+    binary = codex_binary()
+    args = launch_args(binary, cwd, thread)
+    compatible(binary)
+    root = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))).expanduser()
+    control = root / 'app-server-control'
+    control.mkdir(parents=True, exist_ok=True)
+    with (control / 'codex-shared-start.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        env = os.environ.copy()
+        # The daemon serves all projects, not the first terminal's identity.
+        for key in ('TMUX', 'TMUX_PANE', 'CODEX_NOTION_SESSION_NAME', 'CODEX_AGENT_COMMAND', 'MANAGED_SESSION_NAME'):
+            env.pop(key, None)
+        command(binary, 'app-server', 'daemon', 'start', env=env)
+    # Connection failure never falls back to a second standalone writer.
+    os.execv(binary, args)
+
+
+def create_tmux(name, cwd, thread):
+    target = session_name(name)
+    cwd = workspace(cwd)
+    thread = thread_id(thread)
+    if not shutil.which('tmux'):
+        raise ValueError('tmux is not installed.')
+    fingerprint = json.dumps([cwd, thread])
+    listing = subprocess.run(['tmux', 'list-sessions', '-F', '#{session_name}'],
+                             text=True, capture_output=True, timeout=10)
+    exists = listing.returncode == 0 and target in listing.stdout.splitlines()
+    if exists:
+        stored = command('tmux', 'show-options', '-v', '-t', target, '@codex-shared')
+        if stored != fingerprint:
+            raise ValueError('Existing session has different ownership/configuration: ' + target)
+        dead = command('tmux', 'list-panes', '-t', target + ':', '-F', '#{pane_dead}')
+        if '1' in dead.splitlines():
+            raise ValueError('Existing pane has exited. Attach and inspect it before manually replacing it: ' + target)
+        print('Already exists; left unchanged: ' + target)
+        return
+    argv = [sys.executable, str(Path(__file__).resolve()), 'run', '--cwd', cwd]
+    if thread:
+        argv += ['--thread', thread]
+    command('tmux', 'new-session', '-d', '-s', target, '-c', cwd, shlex.join(argv),
+            ';', 'set-window-option', '-t', target + ':', 'remain-on-exit', 'on',
+            ';', 'set-option', '-t', target, '@codex-shared', fingerprint)
+    print('Created ' + target + '. Attach and check trust/startup prompts: tmux attach -t ' + target)
+
+
+def load_sessions(path):
+    data = json.loads(Path(path).expanduser().read_text())
+    if not isinstance(data, dict) or not isinstance(data.get('sessions'), list):
+        raise ValueError('Configuration must contain a sessions array.')
+    sessions = []
+    names = set()
+    for entry in data['sessions']:
+        if not isinstance(entry, dict) or set(entry) != {'name', 'cwd', 'thread'}:
+            raise ValueError('Each session needs exactly name, cwd and thread.')
+        name = session_name(entry['name'])
+        if name in names:
+            raise ValueError('Duplicate session name: ' + name)
+        names.add(name)
+        if not entry['thread']:
+            raise ValueError('Restore requires a saved thread UUID; it must not create new chats every reboot.')
+        sessions.append((entry['name'], workspace(entry['cwd']), thread_id(entry['thread'])))
+    return sessions
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='action', required=True)
+    sub.add_parser('doctor', help='Read-only CLI capability and daemon checks')
+    for action in ('run', 'tmux'):
+        item = sub.add_parser(action)
+        if action == 'tmux':
+            item.add_argument('name')
+        item.add_argument('--cwd', default='.')
+        item.add_argument('--thread', type=thread_id)
+    item = sub.add_parser('restore')
+    item.add_argument('--config', required=True)
+    item.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args()
+    if args.action == 'doctor':
+        binary = codex_binary()
+        compatible(binary)
+        print('Codex:', binary)
+        print(command(binary, '--version'))
+        print(command(binary, 'app-server', 'daemon', 'version'))
+        print('tmux:', shutil.which('tmux') or 'not installed (run still works)')
+        print('Capability check only; no model call, daemon start or authentication change.')
+    elif args.action == 'run':
+        run_shared(args.cwd, args.thread)
+    elif args.action == 'tmux':
+        compatible(codex_binary())
+        create_tmux(args.name, args.cwd, args.thread)
+    else:
+        sessions = load_sessions(args.config)  # Validate all entries before creating anything.
+        if args.dry_run:
+            for name, cwd, thread in sessions:
+                print(json.dumps({'session': session_name(name), 'cwd': cwd, 'thread': thread}))
+        else:
+            compatible(codex_binary())
+            for name, cwd, thread in sessions:
+                create_tmux(name, cwd, thread)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, TypeError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        sys.exit('codex-shared: ' + str(error))
