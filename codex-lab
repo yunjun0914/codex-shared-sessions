@@ -198,12 +198,14 @@ class Lab:
                          '-c', e['cwd'], self.client(e), ';', 'set-option', '-t', name, '@codex-lab-config', str(self.config),
                          ';', 'set-window-option', '-t', name + ':', 'remain-on-exit', 'on')
         self.tmux('set-option', '-p', '-t', pane, '@codex-lab-role', 'codex')
+        # tmux 3.4's deprecated split-window -p path reads the wrong flag
+        # and reports "size missing". -l N% preserves the same proportion.
         if e['role'] == 'manager':
-            display = self.tmux('split-window', '-h', '-p', '55', '-d', '-P', '-F', '#{pane_id}', '-t', pane, self.follower())
+            display = self.tmux('split-window', '-h', '-l', '55%', '-d', '-P', '-F', '#{pane_id}', '-t', pane, self.follower())
             self.tmux('set-option', '-p', '-t', display, '@codex-lab-role', 'view')
         else:
             for index, log in enumerate(e['logs'] or [None]):
-                top = self.tmux('split-window', '-v', '-b', '-p', '45', '-d', '-P', '-F', '#{pane_id}', '-t', pane, self.follower(log))
+                top = self.tmux('split-window', '-v', '-b', '-l', '45%', '-d', '-P', '-F', '#{pane_id}', '-t', pane, self.follower(log))
                 self.tmux('set-option', '-p', '-t', top, '@codex-lab-role', 'log-' + str(index))
             monitor = self.tmux('new-window', '-d', '-P', '-F', '#{pane_id}', '-t', name + ':1', '-n', 'monitor', self.monitor_command(e))
             self.tmux('set-option', '-p', '-t', monitor, '@codex-lab-role', 'monitor')
@@ -254,7 +256,7 @@ class Lab:
             role = 'log-' + str(index)
             pane = self.pane(name, role, optional=True)
             if pane is None:
-                pane = self.tmux('split-window', '-v', '-b', '-p', '40', '-d', '-P', '-F', '#{pane_id}',
+                pane = self.tmux('split-window', '-v', '-b', '-l', '40%', '-d', '-P', '-F', '#{pane_id}',
                                  '-t', self.pane(name, 'codex'), self.follower(log))
                 self.tmux('set-option', '-p', '-t', pane, '@codex-lab-role', role)
             else:
