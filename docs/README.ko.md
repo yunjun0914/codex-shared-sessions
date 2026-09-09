@@ -24,6 +24,8 @@
 
 ## 시작
 
+Tailscale을 사용한다면 설치를 요청할 때 “Tailscale로 서버에 접속해”라고 알려주세요. 에이전트가 [Tailscale 연결 지침](../skills/codex-lab-onboarding/references/tailscale.md)에 따라 일반 SSH인지 Tailscale SSH인지 확인하고, 네트워크 → SSH → 앱 → 동일 대화 → 재접속 순서로 안내합니다. 로그인·접근 승인은 사용자가 진행하며, 보안 정책을 임의로 완화하지 않습니다. 실제 친구 환경에서의 연결 검증은 별도로 필요합니다.
+
 ```bash
 git clone https://github.com/yunjun0914/codex-shared-sessions.git
 cd codex-shared-sessions

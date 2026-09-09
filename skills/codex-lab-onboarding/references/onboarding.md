@@ -55,6 +55,8 @@ Explain that the right side shows the selected branch session, not a copied conv
 
 ## 2. Inspect prerequisites (read-only)
 
+Ask how the user currently reaches the server, reusing any supplied details. For Tailscale, follow [the connection branch](tailscale.md) before proceeding. A shell on a different machine cannot verify the desktop's connectivity; label which checks run on the app's computer and which run on the server.
+
 Confirm OS, Python, Git, tmux, Codex capability/auth status, the app's SSH account and whether a shared daemon already exists. Use `python3 codex-shared doctor`; do not print tokens, private config contents or environment dumps. Explain missing prerequisites before proposing installs. Core is Linux-specific; the desktop client is a separate machine.
 
 Inspect existing tmux sessions, current Git branch/status and `git worktree list`. Do not stop agents or jobs. If a standalone CLI owns a wanted conversation, wait for its response to finish and ask the user to exit normally before shared reconnection. Never delete writer locks or restart the daemon to force access.

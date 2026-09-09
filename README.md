@@ -20,6 +20,7 @@ The guide introduces the full roadmap, labels the current stage and separates yo
 
 ## Requirements and compatibility
 
+- Tailscale users can follow the [Tailscale connection guide](skills/codex-lab-onboarding/references/tailscale.md). It distinguishes ordinary SSH over Tailscale from Tailscale SSH, verifies the app's SSH path and calls out re-authentication limits. The agent guides this branch; actual app/tmux compatibility must be tested on your devices.
 - Linux server, Python 3.9+, an authenticated Codex CLI; tmux for the optional session commands.
 - A desktop app with SSH remote-project support on your client computer.
 - Codex must support `--remote unix://`, `app-server daemon start`, and `app-server daemon version`.
