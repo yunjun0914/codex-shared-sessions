@@ -5,6 +5,8 @@ __pycache__/
 .env.*
 *.local.json
 sessions.json
+lab.json
+lab-state/
 *.log
 *.jsonl
 *.sqlite*

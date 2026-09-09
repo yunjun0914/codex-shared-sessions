@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""Optional branch-agent workspaces on a dedicated tmux socket."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import sys
+import uuid
+
+
+def call(*args, input=None):
+    result = subprocess.run(args, input=input, text=True, capture_output=True, timeout=30)
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or result.stdout.strip() or 'Command failed')
+    return result.stdout.strip()
+
+
+def identifier(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', value):
+        raise ValueError('Use a lowercase name of up to 64 letters, digits and hyphens.')
+    return value
+
+
+def fullpath(value):
+    if not isinstance(value, str) or not value or '\n' in value or '\x00' in value:
+        raise ValueError('Expected a nonempty path without newlines.')
+    return str(Path(value).expanduser().resolve())
+
+
+class Lab:
+    def __init__(self, config, socket):
+        self.config = Path(config).expanduser().resolve()
+        self.socket = identifier(socket)
+        if self.socket == 'default':
+            raise ValueError('The lab needs a dedicated socket, not the default tmux server.')
+        raw = json.loads(self.config.read_text())
+        if not isinstance(raw, dict) or set(raw) != {'language', 'manager', 'experiments'}:
+            raise ValueError('Configuration requires language, manager and experiments.')
+        if not isinstance(raw['language'], str) or '\n' in raw['language']:
+            raise ValueError('language must be a single-line string.')
+        self.language = raw['language']
+        self.entries = {}
+        entries = [(raw['manager'], 'manager')] + [(x, 'experiment') for x in raw['experiments']]
+        for entry, role in entries:
+            required = {'name', 'cwd', 'thread'} | ({'repo', 'branch', 'logs'} if role == 'experiment' else set())
+            if not isinstance(entry, dict) or not required.issubset(entry) or set(entry) - required - ({'monitor'} if role == 'experiment' else set()):
+                raise ValueError('Invalid ' + role + ' entry fields.')
+            name = identifier(entry['name'])
+            if name.startswith('view-') or name in self.entries:
+                raise ValueError('Duplicate or reserved workspace name: ' + name)
+            item = dict(entry, role=role, cwd=fullpath(entry['cwd']))
+            if item['thread'] is not None:
+                item['thread'] = str(uuid.UUID(item['thread']))
+            if role == 'experiment':
+                item['repo'] = fullpath(entry['repo'])
+                call('git', 'check-ref-format', '--branch', entry['branch'])
+                if not isinstance(entry['logs'], list) or len(entry['logs']) > 2:
+                    raise ValueError('logs must contain zero, one or two entries.')
+                for log in entry['logs']:
+                    if not isinstance(log, dict) or set(log) != {'host', 'path'}:
+                        raise ValueError('Each log requires host and path.')
+                    if log['host'] is not None and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', log['host']):
+                        raise ValueError('Log host must be a reviewed SSH alias, without options.')
+                    if not isinstance(log['path'], str) or not log['path'].startswith('/') or '\n' in log['path']:
+                        raise ValueError('Log paths must be absolute, without newlines.')
+                monitor = entry.get('monitor')
+                if monitor is not None:
+                    if not isinstance(monitor, dict) or set(monitor) != {'host', 'kind'} or monitor['kind'] not in ('slurm', 'gpu'):
+                        raise ValueError('monitor needs host and kind (slurm or gpu).')
+                    if monitor['host'] is not None and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', monitor['host']):
+                        raise ValueError('Monitor host must be a reviewed SSH alias.')
+            self.entries[name] = item
+        if len({e['cwd'] for e in self.entries.values()}) != len(self.entries):
+            raise ValueError('Every agent needs a different working directory.')
+        threads = [e['thread'] for e in self.entries.values() if e['thread']]
+        if len(set(threads)) != len(threads):
+            raise ValueError('Different roles must not share a conversation UUID.')
+        self.manager = raw['manager']['name']
+        self.state_dir = self.config.parent / 'lab-state'
+        self.notes = self.state_dir / 'notes'
+
+    def tmux(self, *args, **kwargs):
+        return call('tmux', '-L', self.socket, '-f', '/dev/null', *args, **kwargs)
+
+    def own(self, name):
+        # Exact list membership avoids prefix matches with unrelated sessions.
+        listing = subprocess.run(['tmux', '-L', self.socket, '-f', '/dev/null', 'list-sessions', '-F', '#{session_name}'],
+                                 capture_output=True, text=True, timeout=10)
+        if name not in listing.stdout.splitlines():
+            return False
+        if self.tmux('show-options', '-v', '-t', name, '@codex-lab-config') != str(self.config):
+            raise ValueError('Session belongs to another configuration: ' + name)
+        return True
+
+    def check_socket(self):
+        listing = subprocess.run(['tmux', '-L', self.socket, '-f', '/dev/null', 'list-sessions', '-F', '#{session_name}'],
+                                 capture_output=True, text=True, timeout=10)
+        for existing in listing.stdout.splitlines():
+            self.own(existing)  # Refuse to modify settings on somebody else's socket.
+
+    def pane(self, name, role, optional=False):
+        if not self.own(name):
+            raise ValueError('Session not running: ' + name)
+        rows = self.tmux('list-panes', '-s', '-t', name, '-F', '#{pane_id}|#{@codex-lab-role}').splitlines()
+        found = [line.split('|')[0] for line in rows if line.split('|')[1] == role]
+        if not found and optional:
+            return None
+        if len(found) != 1:
+            raise ValueError('Expected exactly one ' + role + ' pane in ' + name)
+        return found[0]
+
+    def verify(self, name):
+        e = self.entries[name]
+        if not Path(e['cwd']).is_dir():
+            raise ValueError('Run prepare first: ' + name)
+        if e['role'] == 'experiment':
+            if call('git', '-C', e['cwd'], 'branch', '--show-current') != e['branch']:
+                raise ValueError('Worktree branch mismatch: ' + name)
+            if str(Path(call('git', '-C', e['cwd'], 'rev-parse', '--show-toplevel')).resolve()) != e['cwd']:
+                raise ValueError('cwd must be the worktree root.')
+            common = call('git', '-C', e['cwd'], 'rev-parse', '--path-format=absolute', '--git-common-dir')
+            source = call('git', '-C', e['repo'], 'rev-parse', '--path-format=absolute', '--git-common-dir')
+            if Path(common).resolve() != Path(source).resolve():
+                raise ValueError('Worktree belongs to a different repository.')
+
+    def prepare(self, name):
+        e = self.entries[name]
+        if Path(e['cwd']).exists():
+            self.verify(name)
+            print('Existing directory verified; unchanged:', e['cwd'])
+        elif e['role'] == 'manager':
+            Path(e['cwd']).mkdir(parents=True)
+        else:
+            # No fetch, checkout, deletion, commit or push is implicit.
+            call('git', '-C', e['repo'], 'show-ref', '--verify', 'refs/heads/' + e['branch'])
+            call('git', '-C', e['repo'], 'worktree', 'add', '--', e['cwd'], e['branch'])
+            self.verify(name)
+
+    def guide(self, name):
+        self.verify(name)
+        e = self.entries[name]
+        source = Path(__file__).resolve().parent
+        data = source if (source / 'templates').is_dir() else Path(os.environ.get('CODEX_SHARED_DATA_DIR', str(Path.home() / '.local/share/codex-shared-sessions')))
+        template = (data / 'templates' / (e['role'] + '.md')).read_text()
+        self.notes.mkdir(parents=True, exist_ok=True)
+        note = self.notes / (name + '.md')
+        if not note.exists():
+            note.write_text('# ' + name + '\n\n## Current work\n\nNo experiment authorized yet.\n')
+        start, end = '<!-- codex-lab:start -->', '<!-- codex-lab:end -->'
+        block = '\n'.join([start, template, 'Workspace: ' + name, 'Role: ' + e['role'],
+                           'Report language: ' + self.language, 'Config: ' + str(self.config),
+                           'tmux socket: ' + self.socket, 'Work note: ' + str(note), end])
+        path = Path(e['cwd']) / 'AGENTS.md'
+        if path.is_symlink():
+            raise ValueError('Refusing to write a symlinked AGENTS.md.')
+        existing = path.read_text() if path.exists() else ''
+        if start in existing or end in existing:
+            if existing.count(start) != 1 or existing.count(end) != 1 or existing.index(start) > existing.index(end):
+                raise ValueError('Malformed managed block; review manually.')
+            old = existing[existing.index(start):existing.index(end) + len(end)]
+            if old != block:
+                raise ValueError('Existing role block differs; review and update manually, preserving other guidance.')
+        else:
+            path.write_text(existing.rstrip() + '\n\n' + block + '\n')
+        print('Role guidance:', path, '\nWork note:', note)
+
+    def client(self, e):
+        binary = Path(__file__).resolve().with_name('codex-shared')
+        argv = [sys.executable, str(binary), 'run', '--cwd', e['cwd']]
+        if e['thread']:
+            argv += ['--thread', e['thread']]
+        return shlex.join(argv)
+
+    def follower(self, log=None):
+        if not log:
+            return shlex.join([sys.executable, '-u', '-c', "import signal; print('No log selected. Configure an authoritative persisted log.', flush=True); signal.pause()"])
+        argv = ['tail', '-n', '60', '-F', '--', log['path']]
+        if log['host']:
+            argv = ['ssh', '-T', '-o', 'BatchMode=yes', log['host'], shlex.join(argv)]
+        return shlex.join(argv)
+
+    def up(self, name, new=False):
+        self.verify(name)
+        self.check_socket()
+        e = self.entries[name]
+        if self.own(name):
+            print('Existing session unchanged; inspect its panes:', name)
+            return
+        if not e['thread'] and not new:
+            raise ValueError('Missing UUID. First launch requires --new; reboot restore never creates a new chat.')
+        guide = Path(e['cwd']) / 'AGENTS.md'
+        if not guide.is_file() or '<!-- codex-lab:start -->' not in guide.read_text():
+            raise ValueError('Run guide before starting the agent.')
+        pane = self.tmux('new-session', '-d', '-P', '-F', '#{pane_id}', '-s', name, '-n', 'work',
+                         '-c', e['cwd'], self.client(e), ';', 'set-option', '-t', name, '@codex-lab-config', str(self.config),
+                         ';', 'set-window-option', '-t', name + ':', 'remain-on-exit', 'on')
+        self.tmux('set-option', '-p', '-t', pane, '@codex-lab-role', 'codex')
+        if e['role'] == 'manager':
+            display = self.tmux('split-window', '-h', '-p', '55', '-d', '-P', '-F', '#{pane_id}', '-t', pane, self.follower())
+            self.tmux('set-option', '-p', '-t', display, '@codex-lab-role', 'view')
+        else:
+            for index, log in enumerate(e['logs'] or [None]):
+                top = self.tmux('split-window', '-v', '-b', '-p', '45', '-d', '-P', '-F', '#{pane_id}', '-t', pane, self.follower(log))
+                self.tmux('set-option', '-p', '-t', top, '@codex-lab-role', 'log-' + str(index))
+            monitor = self.tmux('new-window', '-d', '-P', '-F', '#{pane_id}', '-t', name + ':1', '-n', 'monitor', self.monitor_command(e))
+            self.tmux('set-option', '-p', '-t', monitor, '@codex-lab-role', 'monitor')
+        self.tmux('set-option', '-g', 'mouse', 'on')
+        self.tmux('bind-key', '-n', 'MouseDown1StatusLeft', 'choose-tree', '-Z', '-s')
+        self.tmux('select-pane', '-t', pane)
+        print('Created', name, '; verify trust prompt, conversation and logs before reporting success.')
+
+    def monitor_command(self, entry):
+        monitor = entry.get('monitor')
+        if not monitor:
+            return self.follower()
+        argv = ['watch', '-n', '5', 'squeue', '--me'] if monitor['kind'] == 'slurm' else ['nvtop']
+        if monitor['host']:
+            argv = ['ssh', '-tt', '-o', 'BatchMode=yes', monitor['host'], shlex.join(argv)]
+        return shlex.join(argv)
+
+    def monitor(self, name):
+        pane = self.pane(name, 'monitor')
+        self.tmux('respawn-pane', '-k', '-t', pane, self.monitor_command(self.entries[name]))
+
+    def focus(self, name):
+        if name == self.manager or self.entries[name]['role'] != 'experiment':
+            raise ValueError('Focus requires an experiment workspace.')
+        self.pane(name, 'codex')
+        right = self.pane(self.manager, 'view')
+        view = 'view-' + name
+        if not self.own(view):
+            self.tmux('new-session', '-d', '-s', view, '-t', name)
+            self.tmux('set-option', '-t', view, '@codex-lab-config', str(self.config))
+        if self.pane(view, 'codex') != self.pane(name, 'codex'):
+            raise ValueError('Existing grouped view does not share the selected agent.')
+        self.tmux('select-window', '-t', view + ':0')
+        nested = shlex.join(['env', '-u', 'TMUX', 'tmux', '-L', self.socket, 'attach-session', '-t', view])
+        if self.tmux('display-message', '-p', '-t', right, '#{pane_start_command}') != nested:
+            self.tmux('respawn-pane', '-k', '-t', right, nested)  # Only the owned display client.
+        self.tmux('select-pane', '-t', self.pane(self.manager, 'codex'))
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        (self.state_dir / 'focus.json').write_text(json.dumps({'focus': name}) + '\n')
+        print('Manager view:', name)
+
+    def logs(self, name):
+        e = self.entries[name]
+        if e['role'] != 'experiment':
+            raise ValueError('Logs belong to an experiment workspace.')
+        # Existing pane IDs are role-checked. Never replace the Codex pane.
+        for index, log in enumerate(e['logs'] or [None]):
+            role = 'log-' + str(index)
+            pane = self.pane(name, role, optional=True)
+            if pane is None:
+                pane = self.tmux('split-window', '-v', '-b', '-p', '40', '-d', '-P', '-F', '#{pane_id}',
+                                 '-t', self.pane(name, 'codex'), self.follower(log))
+                self.tmux('set-option', '-p', '-t', pane, '@codex-lab-role', role)
+            else:
+                self.tmux('respawn-pane', '-k', '-t', pane, self.follower(log))
+        if len(e['logs']) < 2:
+            extra = self.pane(name, 'log-1', optional=True)
+            if extra is not None:
+                self.tmux('kill-pane', '-t', extra)  # Obsolete display only; file and job remain intact.
+
+    def capture(self, name):
+        return self.tmux('capture-pane', '-p', '-t', self.pane(name, 'codex'), '-S', '-60')
+
+    def tell(self, name, message, confirm):
+        pane = self.pane(name, 'codex')
+        text = Path(message).read_text()
+        if not text.strip() or any(ord(c) < 32 and c not in '\n\t\r' for c in text):
+            raise ValueError('Message must contain readable text, without terminal control characters.')
+        if not confirm:
+            print('Preview only. Inspect the agent and use --confirm-idle to paste/submit.\n' + text)
+            return
+        screen = self.capture(name).lower()
+        if 'esc to interrupt' in screen or 'trust the contents' in screen or 'update available' in screen:
+            raise ValueError('Agent is busy or in a startup prompt. No input sent.')
+        if self.tmux('display-message', '-p', '-t', pane, '#{pane_dead}') != '0':
+            raise ValueError('Agent pane exited.')
+        current = self.tmux('display-message', '-p', '-t', pane, '#{pane_current_command}')
+        if Path(current).name != 'codex':
+            raise ValueError('Target is not a running Codex client. No input sent.')
+        buffer = 'lab-' + uuid.uuid4().hex
+        self.tmux('load-buffer', '-b', buffer, '-', input=text)
+        try:
+            self.tmux('paste-buffer', '-d', '-p', '-b', buffer, '-t', pane)
+            self.tmux('send-keys', '-t', pane, 'Enter')
+        finally:
+            subprocess.run(['tmux', '-L', self.socket, 'delete-buffer', '-b', buffer], capture_output=True)
+        print('Input submitted; capture the target to verify it actually started. No execution-success claim is made.')
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--config', default='~/.config/codex-shared-sessions/lab.json')
+    p.add_argument('--socket', default='codex-lab')
+    sub = p.add_subparsers(dest='action', required=True)
+    for action in ('plan', 'restore', 'status'):
+        sub.add_parser(action)
+    for action in ('prepare', 'guide', 'up', 'focus', 'logs', 'monitor', 'capture', 'tell'):
+        parser = sub.add_parser(action)
+        parser.add_argument('name')
+        if action == 'up':
+            parser.add_argument('--new', action='store_true')
+        if action == 'tell':
+            parser.add_argument('--message-file', required=True)
+            parser.add_argument('--confirm-idle', action='store_true')
+    args = p.parse_args()
+    lab = Lab(args.config, args.socket)
+    if hasattr(args, 'name') and args.name not in lab.entries:
+        raise ValueError('Unknown workspace: ' + args.name)
+    if args.action == 'plan':
+        print(json.dumps({'socket': lab.socket, 'language': lab.language, 'workspaces': list(lab.entries.values())}, indent=2))
+        print('Plan only. No worktrees, files, sessions, messages or jobs changed.')
+    elif args.action == 'restore':
+        for name, entry in lab.entries.items():
+            lab.verify(name)
+            if not entry['thread']:
+                raise ValueError('Restore requires every saved UUID: ' + name)
+        for name in lab.entries:
+            lab.up(name)
+        focus = lab.state_dir / 'focus.json'
+        if focus.exists():
+            target = json.loads(focus.read_text())['focus']
+            if target in lab.entries:
+                lab.focus(target)
+    elif args.action == 'status':
+        for name, e in lab.entries.items():
+            print(name, e['role'], 'tmux-present' if lab.own(name) else 'absent', e['branch'] if 'branch' in e else '')
+        print('tmux presence is not evidence of experiment success. Inspect job state, logs and artifacts.')
+    elif args.action == 'tell':
+        lab.tell(args.name, args.message_file, args.confirm_idle)
+    elif args.action == 'up':
+        lab.up(args.name, args.new)
+    elif args.action == 'capture':
+        print(lab.capture(args.name))
+    else:
+        getattr(lab, args.action)(args.name)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, TypeError, KeyError, OSError, AttributeError, subprocess.TimeoutExpired) as error:
+        sys.exit('codex-lab: ' + str(error))

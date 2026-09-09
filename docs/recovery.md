@@ -1,5 +1,7 @@
 # Recovery and troubleshooting
 
+This page covers the core shared client. If you enabled the integration-manager/branch-agent mode, use `codex-lab restore` and [its recovery section](experiment-management.md#recovery-and-boundaries) instead of configuring duplicate core clients for the same conversations.
+
 ## Ordinary reboot
 
 Restore your mounts and SSH access first. Keep the same operating-system account and Codex data directory. Codex local history must still exist.

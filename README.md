@@ -8,6 +8,14 @@ This is a small, unofficial Linux helper. It uses Codex's existing local app-ser
 
 Licensed under the [MIT License](LICENSE).
 
+## Let Codex guide the setup
+
+Open this cloned repository in Codex and ask:
+
+> Read AGENTS.md and guide me through setup step by step. Explain the manager and branch-agent roles, inspect my environment first, and ask before changing my setup or launching experiments.
+
+Codex is instructed to explain two modes, gather your private configuration, validate one branch first and report the evidence at each stage. [Optional experiment management](docs/experiment-management.md) adds an integration-manager agent, one worktree/agent per branch, logs above chat, an interactive manager view, private work notes and opt-in recovery. It is not required for connection-only use.
+
 ## Requirements and compatibility
 
 - Linux server, Python 3.9+, an authenticated Codex CLI; tmux for the optional session commands.
@@ -57,7 +65,7 @@ tmux attach -t cs-my-project
 
 Names are prefixed with `cs-`. Existing matching managed sessions are left alone; unrelated or differently configured sessions are refused. Exited panes are kept for inspection. Creating a pane is **not proof of a successful connection**: attach and check trust prompts or errors. The helper does not change your mouse bindings or desktop layout.
 
-You can also run `codex-shared run ...` inside a pane you already manage. Branch-specific worktrees, log panes and experiment scheduling are intentionally outside the core tool. Notion, Slurm and any particular repository are not dependencies.
+You can also run `codex-shared run ...` inside a pane you already manage. Branch-specific worktrees and log panes are available through the optional `codex-lab` tool installed with `bash install.sh --experiments`. Experiment job submission remains an explicit agent/user task, not an automatic side effect. Notion, Slurm and any particular repository are not core dependencies.
 
 ## Reboot and reset
 

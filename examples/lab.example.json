@@ -1,0 +1,18 @@
+{
+  "language": "한국어",
+  "manager": {
+    "name": "main",
+    "cwd": "~/codex-lab-manager",
+    "thread": null
+  },
+  "experiments": [
+    {
+      "name": "myrepo-baseline",
+      "repo": "~/repos/myrepo",
+      "branch": "baseline",
+      "cwd": "~/worktrees/myrepo/baseline",
+      "thread": null,
+      "logs": []
+    }
+  ]
+}
