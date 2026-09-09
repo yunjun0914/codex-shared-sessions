@@ -1,0 +1,14 @@
+[Unit]
+Description=Optional selected-workspace Notion backup retry worker
+After=network-online.target
+
+[Service]
+Type=simple
+# Replace this path with the reviewed stable clone path before installing.
+ExecStart=/usr/bin/python3 /ABSOLUTE/PATH/codex-shared-sessions/plugins/codex-lab-notion/scripts/notion_sync.py worker
+UMask=0077
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

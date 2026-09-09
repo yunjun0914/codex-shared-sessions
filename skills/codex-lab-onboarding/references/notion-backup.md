@@ -1,6 +1,6 @@
 # Optional conversation backup onboarding
 
-Use only after the user requests Notion backup. This repository does **not** ship a Notion uploader, hook or plugin. Do not imply it is already installed or depends on the original developer's private marketplace. No private page ID, integration name, account or server is a default.
+Use only after the user requests Notion backup. The public clone now contains the optional **codex-lab-notion** plugin with uploader, hooks, private queue and workspace-scoped context recovery. It is **not installed or enabled by default**. Read `plugins/codex-lab-notion/docs/setup.md` in the source clone before installing or configuring it. If using the standalone installed onboarding skill data, locate the source clone first; do not assume its data directory also contains the plugin. No private page ID, account or server is a default.
 
 ## Explain and choose the integration
 
@@ -9,7 +9,7 @@ Present a separate roadmap in the user's language:
 > Notion 백업 설정을 시작하겠습니다. 순서는 ① 연동 도구와 백업 범위 선택 → ② Notion 연결 권한 설정 → ③ 서버에 비밀키 안전하게 저장 → ④ 테스트 대화 백업 확인입니다.
 > 저는 설치 가능한 도구와 설정을 확인하고, 승인받은 설치 및 테스트를 진행합니다. 사용자님은 Notion 로그인, 대상 페이지 선택, 권한 부여와 비밀키 입력을 직접 해주세요. 지금은 1/4 단계입니다.
 
-Inspect available trusted integrations and their actual documentation before proposing one. Explain where conversations go, which turns/roles are captured, whether past conversations upload, exclusion controls and background behavior. Agree on destination and capture scope before any external write. Do not promise privacy markers or session-title grouping unless the selected implementation supports and verifies them.
+Use the bundled public plugin unless the user chooses a different trusted integration. Read its actual documentation and check the installed Codex hook capabilities. Explain where conversations go, which turns/roles are captured, whether past conversations upload, exclusion controls and background behavior. Agree on destination and capture scope before any external write. The public plugin supports stable session names and `#nosync`, but real hook capture/upload/context tests are still required.
 
 If no suitable integration is available, report that prerequisite and offer to defer or separately scope its installation/development. Do not fabricate commands, install an unrelated plugin, or mark backup configured. The core session-sharing setup remains usable.
 

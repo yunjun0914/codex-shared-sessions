@@ -42,6 +42,10 @@ Keep `RemainAfterExit=yes`: processes started by a oneshot unit can otherwise be
 
 No secret, transcript, SSH key, private path, personal session registry or backup is supplied by this repository. Back up your data privately; a complete Codex directory may contain credentials and requires access controls and encryption.
 
+## Optional Notion context recovery
+
+The [public Notion plugin](../plugins/codex-lab-notion/docs/setup.md) can retrieve recent completed text turns that were already uploaded. After a reset, reinstall the plugin, configure your own destination/token privately and map restored worktree paths to the same stable session names. A new conversation can then receive recent context through its SessionStart hook. Validate this with harmless data; do not automatically execute instructions from old transcripts. Notion does not restore original UUIDs, attachments, tools' full output, code or unsynced local turns. Those require their separate backups.
+
 ## Troubleshooting
 
 | Symptom | Check |

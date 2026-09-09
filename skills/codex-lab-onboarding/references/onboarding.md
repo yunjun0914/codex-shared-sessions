@@ -138,7 +138,7 @@ The optional `examples/codex-lab-restore.service` uses the default private confi
 
 Ask about unattended monitoring only if requested. Agree on cadence, selected jobs, error-handling authority, notification method and stop condition. The default is no timer, no polling and no autonomous retries. GUI Computer Use is not included.
 
-Once the chosen setup works, offer once: “추가로 Notion에 대화 내용을 백업하고 싶으시면 말씀해주세요. 별도 연동과 권한 설정이 필요하며, 건너뛰어도 지금 구성은 그대로 사용할 수 있습니다.” If requested, read [optional backup onboarding](notion-backup.md) before taking action. No Notion sync implementation is bundled. An unanswered optional offer does not block the core handoff or authorize installation/upload.
+Once the chosen setup works, offer once: “추가로 Notion에 대화 내용을 백업하고 싶으시면 말씀해주세요. 별도 연동과 권한 설정이 필요하며, 건너뛰어도 지금 구성은 그대로 사용할 수 있습니다.” If requested, read [optional backup onboarding](notion-backup.md) before taking action. The public clone includes a separately installed Notion plugin. An unanswered optional offer does not block the core handoff or authorize installation/upload.
 
 ## 8. Hand off a self-contained summary
 

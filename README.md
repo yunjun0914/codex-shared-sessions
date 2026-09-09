@@ -16,7 +16,7 @@ Open this cloned repository in Codex and ask:
 
 Codex is instructed to explain two modes, gather your private configuration, validate one branch first and report the evidence at each stage. [Optional experiment management](docs/experiment-management.md) adds an integration-manager agent, one worktree/agent per branch, logs above chat, an interactive manager view, private work notes and opt-in recovery. It is not required for connection-only use.
 
-The guide introduces the full roadmap, labels the current stage and separates your actions (app connection, login and permissions) from agent actions (inspection and approved configuration). It pauses for your acknowledgement at user-dependent steps, answers questions without advancing, and verifies before continuing. Optional [Notion backup guidance](skills/codex-lab-onboarding/references/notion-backup.md) is offered separately: no uploader is bundled, a supported integration must be selected, and secrets are entered privately, never in chat.
+The guide introduces the full roadmap, labels the current stage and separates your actions (app connection, login and permissions) from agent actions (inspection and approved configuration). It pauses for your acknowledgement at user-dependent steps, answers questions without advancing, and verifies before continuing. Optional [Notion backup](plugins/codex-lab-notion/docs/setup.md) is available as a separately installed public plugin: selected-workspace capture, private retry queue, stable session pages and recent-context recovery. Secrets are entered privately, never in chat. It is not an exact Codex-state backup; live hook and Notion tests are required in your environment.
 
 ## Requirements and compatibility
 

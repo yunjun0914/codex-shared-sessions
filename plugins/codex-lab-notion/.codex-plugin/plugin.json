@@ -1,0 +1,18 @@
+{
+  "name": "codex-lab-notion",
+  "version": "0.1.0",
+  "description": "Opt-in conversation capture, durable retries and workspace-scoped Notion context handoff.",
+  "author": {
+    "name": "yunjun0914"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Lab Notion",
+    "shortDescription": "Use Codex Lab Notion in Codex.",
+    "longDescription": "Back up selected workspaces to your own Notion database and recover recent conversation context. Does not restore original Codex UUIDs or files.",
+    "developerName": "yunjun0914",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use Codex Lab Notion."
+  }
+}

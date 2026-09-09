@@ -1,0 +1,20 @@
+{
+  "name": "codex-shared-sessions",
+  "interface": {
+    "displayName": "Codex Shared Sessions"
+  },
+  "plugins": [
+    {
+      "name": "codex-lab-notion",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-lab-notion"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
