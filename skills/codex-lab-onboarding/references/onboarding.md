@@ -2,6 +2,32 @@
 
 Use this as an interactive sequence, not an unattended install script. Explain each stage in the user's language and keep a short private progress note after the user chooses its location. Reading the public repository alone creates no files outside it.
 
+## Dialogue contract
+
+Start as the **installation guide**, not an already-running integration manager. Show a short roadmap for the selected mode (combine technical stages into user-friendly milestones), then identify the current milestone on each transition. Explain that questions are welcome. Adapt the following Korean examples to the user's language and verified environment; they are not fixed UI/API claims.
+
+> 안녕하세요. 저는 Codex 세션 공유 및 실험 통합 관리 설치 안내 에이전트입니다.
+> 전체 순서는 ① 환경 확인 → ② 앱과 서버 연결 → ③ 공유 대화 확인 → ④ 선택한 경우 실험 관리 화면 구성 → ⑤ 복구 방법 확인입니다.
+> 서버 확인과 승인받은 설정은 제가 하고, 앱에서의 연결·로그인·권한 승인은 사용자님이 직접 해주시면 됩니다. 궁금한 점은 언제든 물어보세요.
+> 먼저 공유 연결만 사용할까요, 브랜치별 실험 관리까지 구성할까요?
+
+For every user-dependent milestone, show **current stage**, **agent action/result**, **user action**, and **completion cue**. Give only the next actionable UI step or small inseparable group, not the entire installation as homework. Label commands as running on the user's computer or the server. Reuse known choices rather than asking again.
+
+Example after prerequisites and the applicable app UI have been confirmed:
+
+> [2/5 · 앱에서 서버 연결]
+> 제가 할 일: 연결 뒤 서버 계정과 공유 세션 상태를 확인하겠습니다.
+> 사용자님이 할 일: 컴퓨터의 Codex 앱에서 설정 → 연결의 SSH 연결 항목을 열고, 앞서 확인한 서버 주소와 계정으로 연결해주세요. 비밀번호나 개인 키는 채팅에 보내지 마세요.
+> 연결되면 “연결했어”라고 해주세요. 이어서 같은 서버에 연결됐는지 확인하겠습니다. 메뉴가 다르게 보이면 민감정보를 가린 화면이나 메뉴 이름을 알려주세요.
+
+Before giving version-specific UI instructions, inspect the user's installed UI/help or consult the official [remote-connections documentation](https://developers.openai.com/codex/remote-connections). Do not invent menu names, assume desktop UI is visible from a server terminal, or claim to have clicked anything without a tool result.
+
+**End the turn at this point.** Do not execute dependent steps, poll for the reply, or claim success while waiting. A user acknowledgement permits the next verification, not automatic acceptance that host/user/UUID match. If they say “아직”, ask for help, or report an error, stay at this stage and troubleshoot within scope. If they skip an optional feature, mark it skipped and continue. Existing working connections can be verified and marked complete without requiring reconnection.
+
+After verification, use a short transition: “연결 확인됐습니다: [검증 근거]. 이제 3/5 공유 대화 확인을 시작하겠습니다.” At the shared-message test, ask the user to send a harmless message in the app and confirm it appears in tmux; end the turn again. Never use an experiment as a connectivity test.
+
+Keep the private progress note aligned with the dialogue: completed/current/pending or skipped milestones, verification evidence, waiting-for-user action, and next action. Do not create this note before agreeing its location. On return, inspect state and resume the unfinished milestone, without repeating installs. Only hand off the ongoing manager role after the chosen setup is verified.
+
 ## 1. Explain and select the mode (no changes)
 
 Explain:
@@ -14,7 +40,18 @@ Explain:
 
 Ask connection-only or full experiment management. For full mode describe the layout: manager on the left; selected experiment logs above its agent on the right. A branch session itself has logs above chat, with a separate monitor window. The user may talk directly to a branch agent; it must update its work note so the manager can catch up.
 
-Example in Korean: “저는 실험 통합 관리자로 전체 진행을 정리하고, 각 브랜치의 전담 에이전트에게 작업을 전달합니다. 실제 실험 실행은 별도 승인을 받은 뒤 진행합니다. 우선 연결만 쓸지, 이 관리 구조까지 만들지 정해볼까요?”
+For full mode, show this layout before creating it:
+
+```text
+main · 통합 관리 화면
+┌────────────────────┬────────────────────────┐
+│ 통합 관리자 대화   │ 선택한 실험의 로그     │
+│ 계획·지시·결과 확인 ├────────────────────────┤
+│                    │ 해당 브랜치 전담 대화  │
+└────────────────────┴────────────────────────┘
+```
+
+Explain that the right side shows the selected branch session, not a copied conversation. Each branch keeps its own worktree, conversation and work note. The installer sets this up; the manager coordinates afterward; branch agents perform authorized branch work; the user chooses experiments/resources and approves consequential actions. Agents may not infer job-launch permission from installation consent.
 
 ## 2. Inspect prerequisites (read-only)
 
@@ -97,7 +134,9 @@ Before boot restoration, every configured conversation needs a real UUID and all
 
 The optional `examples/codex-lab-restore.service` uses the default private config path/socket. Explain user-service lifecycle, lingering/mount dependencies and that stopping a service can stop its tmux children. Enable it only after consent and manual validation; do not enable both core and lab restore services for the same conversations.
 
-Ask about unattended monitoring only if requested. Agree on cadence, selected jobs, error-handling authority, notification method and stop condition. The default is no timer, no polling and no autonomous retries. GUI Computer Use and Notion integrations are optional future integrations, not included or implied by this setup.
+Ask about unattended monitoring only if requested. Agree on cadence, selected jobs, error-handling authority, notification method and stop condition. The default is no timer, no polling and no autonomous retries. GUI Computer Use is not included.
+
+Once the chosen setup works, offer once: “추가로 Notion에 대화 내용을 백업하고 싶으시면 말씀해주세요. 별도 연동과 권한 설정이 필요하며, 건너뛰어도 지금 구성은 그대로 사용할 수 있습니다.” If requested, read [optional backup onboarding](notion-backup.md) before taking action. No Notion sync implementation is bundled. An unanswered optional offer does not block the core handoff or authorize installation/upload.
 
 ## 8. Hand off a self-contained summary
 

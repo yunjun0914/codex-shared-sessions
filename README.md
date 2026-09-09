@@ -16,6 +16,8 @@ Open this cloned repository in Codex and ask:
 
 Codex is instructed to explain two modes, gather your private configuration, validate one branch first and report the evidence at each stage. [Optional experiment management](docs/experiment-management.md) adds an integration-manager agent, one worktree/agent per branch, logs above chat, an interactive manager view, private work notes and opt-in recovery. It is not required for connection-only use.
 
+The guide introduces the full roadmap, labels the current stage and separates your actions (app connection, login and permissions) from agent actions (inspection and approved configuration). It pauses for your acknowledgement at user-dependent steps, answers questions without advancing, and verifies before continuing. Optional [Notion backup guidance](skills/codex-lab-onboarding/references/notion-backup.md) is offered separately: no uploader is bundled, a supported integration must be selected, and secrets are entered privately, never in chat.
+
 ## Requirements and compatibility
 
 - Linux server, Python 3.9+, an authenticated Codex CLI; tmux for the optional session commands.
