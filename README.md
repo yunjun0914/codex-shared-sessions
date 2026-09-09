@@ -6,6 +6,8 @@ This is a small, unofficial Linux helper. It uses Codex's existing local app-ser
 
 [한국어 안내](docs/README.ko.md) · [Recovery](docs/recovery.md) · [Security](SECURITY.md)
 
+Licensed under the [MIT License](LICENSE).
+
 ## Requirements and compatibility
 
 - Linux server, Python 3.9+, an authenticated Codex CLI; tmux for the optional session commands.
